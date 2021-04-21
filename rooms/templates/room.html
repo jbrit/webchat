@@ -1,0 +1,163 @@
+{% extends 'base.html' %} {% block body %}
+<main>
+  <div class="container">
+    <div style="max-width: 500px" class="row mx-auto">
+      <div style="max-width: 200px" class="col-12 position-absolute">
+        <video class="w-100" id="localVideo" autoplay></video>
+      </div>
+      <div class="col-12">
+        <video class="w-100" id="remoteVideo" autoplay></video>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="container">
+  <div style="max-width: 500px" class="mx-auto d-flex justify-content-between">
+    <button onclick="makeCall()" type="button" class="btn btn-outline-success">
+      Make Call
+    </button>
+    <button onclick="endCall()" type="button" class="btn btn-outline-danger">
+      End Call
+    </button>
+  </div>
+</div>
+<script
+  src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+  integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+  crossorigin="anonymous"
+></script>
+<script defer>
+  // Global Variables
+  let configuration = {
+    offerToReceiveAudio: true,
+    offerToReceiveVideo: true,
+
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  };
+  const peerConnection = new RTCPeerConnection(configuration);
+  const socket = new WebSocket(
+    window.location.href.split("#")[0].replace("http", "ws")
+  );
+  let caller = false;
+
+  //   Signalling
+  socket.send_json = (obj) => {
+    socket.send(JSON.stringify(obj));
+  };
+  const dataFromMessage = (message) => JSON.parse(message.data).data;
+  // makeCall Function
+  async function makeCall() {
+    playVideoFromCamera();
+    caller = true;
+    socket.onmessage = receiveAnswer;
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    socket.send_json({ offer: offer });
+  }
+  function endCall() {
+    caller = false;
+  }
+  async function receiveAnswer(message) {
+    data = dataFromMessage(message);
+    if (caller && data.answer) {
+      const remoteDesc = new RTCSessionDescription(data.answer);
+      await peerConnection.setRemoteDescription(remoteDesc);
+    }
+  }
+  playVideoFromCamera();
+  //   Receive Call
+  socket.addEventListener("message", async (message) => {
+    data = dataFromMessage(message);
+    if (!caller && data.offer && confirm("Do you want to receive this call?")) {
+      peerConnection.setRemoteDescription(
+        new RTCSessionDescription(data.offer)
+      );
+      const answer = await peerConnection.createAnswer({
+        mandatory: { OfferToReceiveAudio: true, OfferToReceiveVideo: true },
+      });
+      await peerConnection.setLocalDescription(answer);
+
+      socket.send_json({ answer: answer });
+    }
+  });
+  //
+  // Listen for local ICE candidates on the local RTCPeerConnection
+  peerConnection.addEventListener("icecandidate", (event) => {
+    if (event.candidate) {
+      socket.send_json({ "new-ice-candidate": event.candidate });
+    }
+  });
+  // Listen for remote ICE candidates and add them to the local RTCPeerConnection
+  socket.addEventListener("message", async (message) => {
+    data = dataFromMessage(message);
+    if ("new-ice-candidate" in data) {
+      try {
+        await peerConnection.addIceCandidate(data["new-ice-candidate"]);
+      } catch (e) {
+        console.error("Error adding received ice candidate", e);
+      }
+    }
+  });
+
+  // Listen for connectionstatechange on the local RTCPeerConnection
+  peerConnection.addEventListener("connectionstatechange", (event) => {
+    if (peerConnection.connectionState === "connected") {
+      console.log("Connected");
+    }
+  });
+  //   remote stream
+  const remoteStream = new MediaStream();
+  const remoteVideo = document.querySelector("#remoteVideo");
+  peerConnection.addEventListener("track", async (event) => {
+    remoteVideo.srcObject = remoteStream;
+    remoteStream.addTrack(event.track);
+  });
+  // Utils
+  const setCallElement = (element, local = false) => {
+    element.autoplay = true;
+    element.playsInline = true;
+    element.muted = local;
+  };
+
+  async function getVideoStream() {
+    const constraints = { video: true, audio: true };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    return stream;
+  }
+  function addStreamToPeerConnection(stream) {
+    let removeFromPeer,
+      senders = [];
+    stream.getTracks().forEach((track) => {
+      let sender = peerConnection.addTrack(track);
+      senders.push(sender);
+    });
+    removeFromPeer = () =>
+      senders.forEach((pcsender) => peerConnection.removeTrack(pcsender));
+    return removeFromPeer;
+  }
+  async function playVideoFromCamera() {
+    try {
+      const stream = await getVideoStream();
+      const videoElement = document.querySelector("#localVideo");
+      stream.removeStreamFromPeerConnection = addStreamToPeerConnection(stream);
+      videoElement.srcObject = stream;
+      window.stopVideoFromCamera = () => stopStreamedVideo(videoElement);
+      setCallElement(videoElement, true);
+    } catch (error) {
+      console.error("Error opening video camera.", error);
+      throw "Didn't open camera";
+    }
+  }
+  function stopStreamedVideo(videoElem) {
+    const stream = videoElem.srcObject;
+    const tracks = stream.getTracks();
+
+    tracks.forEach(function (track) {
+      track.stop();
+    });
+
+    videoElem.srcObject = null;
+  }
+</script>
+{% endblock body %}

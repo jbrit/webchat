@@ -1,0 +1,40 @@
+{% extends 'base.html' %} {% block body %}
+<div class="container">
+  <div class="fs-2 mt-5 mb-3">
+    Welcome to Django Chat,<br />
+    Enter A room and Make a Call
+  </div>
+  <form class="mb-5">
+    <div class="mb-3">
+      <label for="exampleInputEmail1" class="form-label">Room Name</label>
+      <input
+        type="text"
+        class="form-control"
+        id="roomName"
+        placeholder="Enter the Room Name..."
+      />
+    </div>
+
+    <button type="submit" class="btn btn-primary">Join Room</button>
+  </form>
+  <hr />
+  <div class="text-center">
+    <div class="text-muted">
+      A project to implement WebRTC video calling, and a django server.
+    </div>
+    Developed by <a target="_blank" href="https://jbritz.tech/">jbritz</a>
+  </div>
+</div>
+<script>
+  document.querySelector("form").onsubmit = handleForm;
+  function handleForm(e) {
+    e.preventDefault();
+    const roomName = document.getElementById("roomName").value;
+    if (!roomName.length) return alert("Enter a valid room name");
+    window.open(
+      window.location.href.split("#")[0].split("?")[0] + roomName,
+      "_self"
+    );
+  }
+</script>
+{% endblock body %}
